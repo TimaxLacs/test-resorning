@@ -38,7 +38,7 @@ def get_keyboard():
 async def get_openai_response(messages):
     try:
         response = openai.chat.completions.create(
-            model="deepseek-chat",
+            model="gpt-3.5-turbo",
             messages=messages
         )
         return response.choices[0].message.content
@@ -48,32 +48,47 @@ async def get_openai_response(messages):
 
 # Режим рассуждений
 async def reasoning_mode(query, history):
-    # Решение
+    # Этап решения с акцентом на полезность и пригодность
     solve_prompt = f"""
     You are an AI assistant. The user requested: "{query}".  
     Consider the conversation history: {history[-5:]}, including past reasoning, for context.  
     Determine the language of the query and respond only in that language.  
-    Reason step by step and provide your solution for the request, regardless of its type (question, task, reflection, etc.).  
+    Reason step by step and expanded, andprovide your solution for the request, regardless of its type (question, task, reflection, etc.).  
+    Aim to give the most helpful and suitable answer, not just a correct one, by adapting it to the user's likely needs and context.  
     End with a conclusion in the format: "Conclusion: [your answer]".
     """
     solve_response = await get_openai_response([{"role": "user", "content": solve_prompt}])
 
-    # Проверка
+    # Этап проверки с самокритикой
     verify_prompt = f"""
     Verify the reasoning: "{solve_response}" for the query "{query}".  
-    Consider the conversation history: {history[-5:]}, including past reasoning, for context.  
+    Consider the conversation history: including past reasoning, for context.  
     Respond in the same language as the query.  
-    If there is an error, explain it and provide a corrected answer.  
-    Format: "Verification: [your check]\nVerified Answer: [your answer]".
+    First, criticize the solution: identify weaknesses, assumptions, or areas where the answer can be made more helpful or suitable for the user's needs.  try to deny it completely. showing the most untenable sides of the given solution. but be structured and consistent.
+    become a complete antagonist of all the proposed ideas
+    Format: "Critique: [your critique]\n".
     """
-    verify_response = await get_openai_response([{"role": "user", "content": verify_prompt}])
+    verify_response = await get_openai_response([{"role": "user", "content": verify_prompt}]) 
 
-    # Синтез
+    improvement_prompt = f"""
+    Verify the reasoning: "{solve_response}" and also criticism {verify_response} for the query "{query}".  
+    Consider the conversation history: including past reasoning, for context.  
+    Respond in the same language as the query.  
+    Based on the criticism, try to bypass these points as much as possible by improving your ideas. It is necessary that all critical points are bypassed in one way or another or new solutions are invented that bypass them. 
+    also try to provide additional upgrades that would make your answer even better. the answer needs to be the best possible
+    Finally, provide a verified answer that incorporates these improvements. 
+    Format: "Workaround:[your workaround]\nImprovement: [your improvements]\nVerified Answer:[verified answer]\n".
+    """
+    
+    improvement_response = await get_openai_response([{"role": "user", "content": improvement_prompt}])
+
+    # Этап синтеза с учетом улучшений
     synthesis_prompt = f"""
-    Combine the solution "{solve_response}" and verification "{verify_response}" into a final answer.  
-    Consider the conversation history: {history[-5:]}, including past reasoning, for consistency.  
+    Combine the solution "{solve_response}" and the verified answer "{verify_response}"and also "{improvement_response}" into a final answer for the query "{query}".  
+    Consider the conversation history:  including past reasoning, for consistency.  
     Respond in the same language as the query.  
     Provide the final answer in the exact format requested by the user (e.g., list, paragraph, table), based on the structure and intent of the query "{query}".  
+    Ensure the answer is both correct and maximally helpful, incorporating improvements from the verification step.  
     Format: "Final Answer: [final answer]".
     """
     final_response = await get_openai_response([{"role": "user", "content": synthesis_prompt}])
@@ -121,7 +136,8 @@ async def handle_message(message: types.Message):
         prompt = f"""
         Answer the query: "{query}".  
         Consider the conversation history: {history[-5:]}.  
-        Determine the language of the query and respond only in that language.
+        Determine the language of the query and respond only in that language.  
+        Aim to provide the most helpful and suitable answer, not just a correct one.
         """
         response = await get_openai_response([{"role": "user", "content": prompt}])
         await message.reply(response)
